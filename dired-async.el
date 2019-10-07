@@ -159,6 +159,13 @@ Should take same args as `message'."
                            'dired-async-failures
                            (car operation) (length skipped) total
                            (dired-plural-s total))))
+           (when dired-buffers
+             (cl-loop for (_f . b) in dired-buffers
+                      when (buffer-live-p b)
+                      do (with-current-buffer b
+                         (when (and (not (file-remote-p default-directory nil t))
+                                    (file-exists-p default-directory))
+                             (revert-buffer nil t)))))
            ;; Finally send the success message.
            (funcall dired-async-message-function
                     "Asynchronous %s of %s on %s file%s done"
@@ -246,7 +253,11 @@ ESC or `q' to not overwrite any of the remaining files,
       (setq async-quiet-switch
             (if (and (boundp 'tramp-cache-read-persistent-data)
                      async-fn-list
+<<<<<<< HEAD
                      (cl-loop for (from . to) in async-fn-list
+=======
+                     (cl-loop for (_from . to) in async-fn-list
+>>>>>>> master
                               thereis (file-remote-p to)))
                 "-q" "-Q"))
       ;; When failures have been printed to dired log add the date at bob.
@@ -361,7 +372,43 @@ ESC or `q' to not overwrite any of the remaining files,
                  (advice-remove 'wdired-do-renames #'dired-async-wdired-do-renames))
           (ad-deactivate 'dired-create-files)
           (ad-deactivate 'wdired-do-renames))))
+<<<<<<< HEAD
+=======
 
+(defmacro dired-async--with-async-create-files (&rest body)
+  "Evaluate BODY with ‘dired-create-files’ set to ‘dired-async-create-files’."
+  (declare (indent 0))
+  `(cl-letf (((symbol-function 'dired-create-files) #'dired-async-create-files))
+     ,@body))
+
+;;;###autoload
+(defun dired-async-do-copy (&optional arg)
+  "Run ‘dired-do-copy’ asynchronously."
+  (interactive "P")
+  (dired-async--with-async-create-files
+    (dired-do-copy arg)))
+
+;;;###autoload
+(defun dired-async-do-symlink (&optional arg)
+  "Run ‘dired-do-symlink’ asynchronously."
+  (interactive "P")
+  (dired-async--with-async-create-files
+    (dired-do-symlink arg)))
+>>>>>>> master
+
+;;;###autoload
+(defun dired-async-do-hardlink (&optional arg)
+  "Run ‘dired-do-hardlink’ asynchronously."
+  (interactive "P")
+  (dired-async--with-async-create-files
+    (dired-do-hardlink arg)))
+
+;;;###autoload
+(defun dired-async-do-rename (&optional arg)
+  "Run ‘dired-do-rename’ asynchronously."
+  (interactive "P")
+  (dired-async--with-async-create-files
+    (dired-do-rename arg)))
 
 (provide 'dired-async)
 

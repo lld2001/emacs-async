@@ -4,7 +4,11 @@
 
 ;; Author: John Wiegley <jwiegley@gmail.com>
 ;; Created: 18 Jun 2012
+<<<<<<< HEAD
 ;; Version: 1.9.2
+=======
+;; Version: 1.9.3
+>>>>>>> master
 
 ;; Keywords: async
 ;; X-URL: https://github.com/jwiegley/emacs-async
@@ -31,9 +35,16 @@
 
 ;;; Code:
 
+(eval-when-compile (require 'cl-lib))
+
 (defgroup async nil
   "Simple asynchronous processing in Emacs"
   :group 'emacs)
+
+(defcustom async-variables-noprops-function #'async--purecopy
+  "Default function to remove text properties in variables."
+  :group 'async
+  :type 'function)
 
 (defvar async-debug nil)
 (defvar async-send-over-pipe t)
@@ -45,13 +56,52 @@
 (defvar async-current-process nil)
 (defvar async--procvar nil)
 
+(defun async--purecopy (object)
+  "Remove text properties in OBJECT.
+
+Argument OBJECT may be a list or a string, if anything else it
+is returned unmodified."
+  (cond ((stringp object)
+         (substring-no-properties object))
+        ((consp object)
+         (cl-loop for elm in object
+                  ;; A string.
+                  if (stringp elm)
+                  collect (substring-no-properties elm)
+                  else
+                  ;; Proper lists.
+                  if (and (consp elm) (null (cdr (last elm))))
+                  collect (async--purecopy elm)
+                  else
+                  ;; Dotted lists.
+                  ;; We handle here only dotted list where car and cdr
+                  ;; are atoms i.e. (x . y) and not (x . (x . y)) or
+                  ;; (x . (x y)) which should fit most cases.
+                  if (and (consp elm) (cdr (last elm)))
+                  collect (let ((key (car elm))
+                                (val (cdr elm)))
+                            (cons (if (stringp key)
+                                      (substring-no-properties key)
+                                    key)
+                                  (if (stringp val)
+                                      (substring-no-properties val)
+                                    val)))
+                  else
+                  collect elm))
+        (t object)))
+
 (defun async-inject-variables
-  (include-regexp &optional predicate exclude-regexp)
+  (include-regexp &optional predicate exclude-regexp noprops)
   "Return a `setq' form that replicates part of the calling environment.
+
 It sets the value for every variable matching INCLUDE-REGEXP and
 also PREDICATE.  It will not perform injection for any variable
-matching EXCLUDE-REGEXP (if present).  It is intended to be used
-as follows:
+matching EXCLUDE-REGEXP (if present) or representing a syntax-table
+i.e. ending by \"-syntax-table\".
+When NOPROPS is non nil it tries to strip out text properties of each
+variable's value with `async-variables-noprops-function'.
+
+It is intended to be used as follows:
 
     (async-start
        `(lambda ()
@@ -66,17 +116,26 @@ as follows:
     ,@(let (bindings)
         (mapatoms
          (lambda (sym)
-           (if (and (boundp sym)
-                    (or (null include-regexp)
-                        (string-match include-regexp (symbol-name sym)))
-                    (not (string-match
-                          (or exclude-regexp "-syntax-table\\'")
-                          (symbol-name sym))))
-               (let ((value (symbol-value sym)))
-                 (when (or (null predicate)
-                           (funcall predicate sym))
-                   (setq bindings (cons `(quote ,value) bindings)
-                         bindings (cons sym bindings)))))))
+           (let* ((sname (and (boundp sym) (symbol-name sym)))
+                  (value (and sname (symbol-value sym))))
+             (when (and sname
+                        (or (null include-regexp)
+                            (string-match include-regexp sname))
+                        (or (null exclude-regexp)
+                            (not (string-match exclude-regexp sname)))
+                        (not (string-match "-syntax-table\\'" sname)))
+               (unless (or (stringp value)
+                           (memq value '(nil t))
+                           (numberp value)
+                           (vectorp value))
+                 (setq value `(quote ,value)))
+               (when noprops
+                 (setq value (funcall async-variables-noprops-function
+                                      value)))
+               (when (or (null predicate)
+                         (funcall predicate sym))
+                 (setq bindings (cons value bindings)
+                       bindings (cons sym bindings)))))))
         bindings)))
 
 (defalias 'async-inject-environment 'async-inject-variables)
@@ -121,9 +180,9 @@ as follows:
 
 (defun async--receive-sexp (&optional stream)
   (let ((sexp (decode-coding-string (base64-decode-string
-                                     (read stream)) 'utf-8-unix))
+                                     (read stream)) 'utf-8-auto))
 	;; Parent expects UTF-8 encoded text.
-	(coding-system-for-write 'utf-8-unix))
+	(coding-system-for-write 'utf-8-auto))
     (if async-debug
         (message "Received sexp {{{%s}}}" (pp-to-string sexp)))
     (setq sexp (read sexp))
@@ -138,7 +197,7 @@ as follows:
 	(print-circle t))
     (prin1 sexp (current-buffer))
     ;; Just in case the string we're sending might contain EOF
-    (encode-coding-region (point-min) (point-max) 'utf-8-unix)
+    (encode-coding-region (point-min) (point-max) 'utf-8-auto)
     (base64-encode-region (point-min) (point-max) t)
     (goto-char (point-min)) (insert ?\")
     (goto-char (point-max)) (insert ?\" ?\n)))
@@ -154,7 +213,7 @@ as follows:
   "Called from the child Emacs process' command-line."
   ;; Make sure 'message' and 'prin1' encode stuff in UTF-8, as parent
   ;; process expects.
-  (let ((coding-system-for-write 'utf-8-unix))
+  (let ((coding-system-for-write 'utf-8-auto))
     (setq async-in-child-emacs t
 	  debug-on-error async-debug)
     (if debug-on-error
@@ -287,7 +346,7 @@ returns nil.  It can still be useful, however, as an argument to
 `async-ready' or `async-wait'."
   (let ((sexp start-func)
 	;; Subordinate Emacs will send text encoded in UTF-8.
-	(coding-system-for-read 'utf-8-unix))
+	(coding-system-for-read 'utf-8-auto))
     (setq async--procvar
           (async-start-process
            "emacs" (file-truename
